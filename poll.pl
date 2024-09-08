@@ -21,9 +21,11 @@ my $loop = IO::Async::Loop->new;
 RxPerl::IOAsync::set_loop($loop);
 
 BEGIN {
-  #will force a flush of the output for git commands
+  # enforce a flush of the output for git commands
   $ENV{GIT_FLUSH} = 1;
 }
+
+# read options and create git repository objects
 sub setup {
   GetOptions (\%globals, @opts) or die "Error parsing options";
   $globals{repo} //= c($ENV{PWD} || '.');
@@ -45,6 +47,7 @@ sub setup {
   $globals{log}->info("finish setup");
 }
 
+# run the git command and collect data
 sub run_git_cmd($cmd, $git, $opts = undef) {
   $globals{log}->info(
     sprintf ("git %s on %s repo", $cmd, $git->git_dir)
@@ -62,24 +65,41 @@ sub run_git_cmd($cmd, $git, $opts = undef) {
   $data->{$cmd}{repo} = $git->git_dir;
   $globals{log}->info( Dump($data) ) if $globals{verbose};
 
-  return $data->{$cmd}{output};
+  return $data;
 }
 
+# save statistic of operation time to complete
+sub stats_data ($file, $data){
+  my $handler = $file->open('>>');
+  my ($cmd) = keys %$data;
+  my $cmd_data = $data->{$cmd};
+  $handler->write(join( ",", $cmd, map {$cmd_data->{$_}} qw(delta) ) . "\n");
+  $handler->close;
+}
+
+# the main function to update (pull changes) for outdate repository
 sub update_repo ($git) {
   $globals{log}->info("fetching updates for " . $git->git_dir) if $globals{verbose};
-  run_git_cmd('fetch', $git);
+  my $repo = path($git->git_dir)->to_array->[-2];
+  my $data_file = path("/tmp/data_$repo.csv");
+
+  my $fetch = run_git_cmd('fetch', $git);
+  stats_data($data_file, $fetch);
 
   my $status = run_git_cmd('status', $git);
+  stats_data($data_file, $status);
 
-  if ($status =~ /branch.*behind/) {
+  if ($status->{status}{output} =~ /branch.*behind/si) {
     $globals{log}->info(
       sprintf ("applying changes into %s", $git->git_dir)
     );
-    run_git_cmd('pull', $git);
+    my $pull = run_git_cmd('pull', $git);
+    stats_data($data_file, $pull);
   }
   return 1;
 }
 
+# create the observer for the git repositories
 sub pull_tasker ($git) {
   $globals{log}->info(
     sprintf ("created observer for %s", $git->git_dir)
@@ -92,9 +112,11 @@ sub pull_tasker ($git) {
   };
 }
 
+# make a subprocess with a timeout attached to it
 sub create_subprocess($cb, $repo) {
   $globals{log}->info("generating subprocess for $repo");
 
+  # the process attached to the callback ($cb)
   my $p = path($repo);
   my $name = $p->to_array->[-2];
   my $setup = [
@@ -114,7 +136,9 @@ sub create_subprocess($cb, $repo) {
     },
   );
 
+  # set both in the loop: process and timeout
   $loop->add( $process );
+  # the timeout
   $loop->add(
     IO::Async::Timer::Countdown->new(
       delay     => int($globals{poll} * 0.95),
@@ -130,6 +154,7 @@ sub create_subprocess($cb, $repo) {
   );
 }
 
+# setup the Rx component to each repository
 sub setup_polling {
   return $globals{git}->map(
     sub { rx_timer(0,$globals{poll})->subscribe(pull_tasker($_)) }

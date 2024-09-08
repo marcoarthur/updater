@@ -8,4 +8,5 @@ run: clean-logs
 clean-logs:
 	rm /tmp/*.log || true
 	rm /tmp/updater/*.log || true
+	rm /tmp/data_* || true
 
