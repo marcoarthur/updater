@@ -10,6 +10,7 @@ use Git::Repository;
 use Getopt::Long;
 use IO::Async::Timer::Countdown;
 use IO::Async::Process;
+use YAML;
 use DDP;
 
 my @opts = qw( repo=s@ verbose  poll=i);
@@ -19,6 +20,10 @@ $globals{log} = Mojo::Log->new;
 my $loop = IO::Async::Loop->new;
 RxPerl::IOAsync::set_loop($loop);
 
+BEGIN {
+  #will force a flush of the output for git commands
+  $ENV{GIT_FLUSH} = 1;
+}
 sub setup {
   GetOptions (\%globals, @opts) or die "Error parsing options";
   $globals{repo} //= c($ENV{PWD} || '.');
@@ -44,17 +49,25 @@ sub run_git_cmd($cmd, $git, $opts = undef) {
   $globals{log}->info(
     sprintf ("git %s on %s repo", $cmd, $git->git_dir)
   ) if $globals{verbose};
+  my $data = { $cmd => { delta => time } };
+  my $git_cmd = $git->command( $opts ? ($cmd => @$opts) : $cmd );
+  my @out = $git_cmd->stdout->getlines;
+  my @err = $git_cmd->stderr->getlines;
+  $data->{$cmd}{delta} -= time;
+  $data->{$cmd}{delta} *= -1;
+  $data->{$cmd}{output} = join "\n", @out;
+  $data->{$cmd}{stderr} = join "\n", @err;
+  $data->{$cmd}{pid} = $$;
+  $data->{$cmd}{opts} = $opts;
+  $data->{$cmd}{repo} = $git->git_dir;
+  $globals{log}->info( Dump($data) ) if $globals{verbose};
 
-  my $out =  $opts ? $git->run($cmd, $opts) : $git->run($cmd);
-  $globals{log}->info(
-    sprintf ("git %s on %s repo, returned %s", $cmd, $git->git_dir, $out)
-  ) if $globals{verbose};
-  return $out;
+  return $data->{$cmd}{output};
 }
 
 sub update_repo ($git) {
-  $globals{log}->info("fetching updates for " . $git->git_dir);
-  $git->run('fetch');
+  $globals{log}->info("fetching updates for " . $git->git_dir) if $globals{verbose};
+  run_git_cmd('fetch', $git);
 
   my $status = run_git_cmd('status', $git);
 
@@ -109,7 +122,7 @@ sub create_subprocess($cb, $repo) {
         if ($process->is_running) {
           $globals{log}->warn(
             sprintf ("(%d) killed fetching for %s", $process->pid, $p)
-          );
+          ) if $globals{verbose};
           $process->kill(15);
         }
       },
