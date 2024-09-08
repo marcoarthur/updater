@@ -68,7 +68,6 @@ sub update_repo ($git) {
 }
 
 sub pull_tasker ($git) {
-
   $globals{log}->info(
     sprintf ("created observer for %s", $git->git_dir)
   );
@@ -124,6 +123,10 @@ sub setup_polling {
   );
 }
 
-setup;
-my $sources = setup_polling; #keep observables alive
-$loop->run;
+sub main {
+  setup;
+  my $sources = setup_polling; #keep observables alive
+  $loop->run;
+}
+
+main();
