@@ -39,7 +39,7 @@ sub setup {
   $globals{log}->info("finish setup");
 }
 
-sub update_repo ($git){
+sub update_repo ($git) {
   $globals{log}->info("fetching updates for " . $git->git_dir);
   $git->run('fetch');
   my $status = $git->run('status');
@@ -104,12 +104,11 @@ sub create_subprocess($cb, $repo) {
 }
 
 sub setup_polling {
-  my $sources = $globals{git}->map(
+  return $globals{git}->map(
     sub { rx_timer(0,$globals{poll})->subscribe(pull_tasker($_)) }
   );
-  return $sources;
 }
 
 setup;
-my $sources = setup_polling;
+my $sources = setup_polling; #keep observables alive
 $loop->run;
