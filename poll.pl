@@ -40,16 +40,29 @@ sub setup {
   $globals{log}->info("finish setup");
 }
 
+sub run_git_cmd($cmd, $git, $opts = undef) {
+  $globals{log}->info(
+    sprintf ("git %s on %s repo", $cmd, $git->git_dir)
+  ) if $globals{verbose};
+
+  my $out =  $opts ? $git->run($cmd, $opts) : $git->run($cmd);
+  $globals{log}->info(
+    sprintf ("git %s on %s repo, returned %s", $cmd, $git->git_dir, $out)
+  ) if $globals{verbose};
+  return $out;
+}
+
 sub update_repo ($git) {
   $globals{log}->info("fetching updates for " . $git->git_dir);
   $git->run('fetch');
-  my $status = $git->run('status');
+
+  my $status = run_git_cmd('status', $git);
 
   if ($status =~ /branch.*behind/) {
     $globals{log}->info(
       sprintf ("applying changes into %s", $git->git_dir)
     );
-    $git->run('pull') or die "Could not fetch $@";
+    run_git_cmd('pull', $git);
   }
   return 1;
 }
@@ -80,7 +93,8 @@ sub create_subprocess($cb, $repo) {
   my $process = IO::Async::Process->new(
     code => $cb,
     setup => $setup,
-    on_exception => sub ($exception, $errno, $exitcode) {
+    on_exception => sub {
+      my ($self, $exception, $exitcode) = @_;
       $globals{log}->error("($p)Error, $exception, failed with code $exitcode");
     },
     on_finish => sub {
