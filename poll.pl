@@ -21,6 +21,7 @@ RxPerl::IOAsync::set_loop($loop);
 
 sub setup {
   GetOptions (\%globals, @opts) or die "Error parsing options";
+  $globals{repo} //= c($ENV{PWD} || '.');
   $globals{repo} = $globals{repo}->@* ? c($globals{repo}->@*) : c($ENV{PWD} || '.');
   $globals{poll} //= 60*60*3; # three hours
   $globals{git} = c();
