@@ -8,6 +8,7 @@ use Mojo::Collection qw(c);
 use Mojo::Log;
 use Git::Repository;
 use Getopt::Long;
+use IO::Async::Timer::Countdown;
 use IO::Async::Process;
 use DDP;
 
@@ -21,7 +22,7 @@ RxPerl::IOAsync::set_loop($loop);
 sub setup {
   GetOptions (\%globals, @opts) or die "Error parsing options";
   $globals{repo} = $globals{repo}->@* ? c($globals{repo}->@*) : c($ENV{PWD} || '.');
-  $globals{poll} //= 60; # one minute polling
+  $globals{poll} //= 60*60*3; # three hours
   $globals{git} = c();
   $globals{repo}->each(
     sub {
@@ -45,10 +46,11 @@ sub update_repo ($git){
 
   if ($status =~ /branch.*behind/) {
     $globals{log}->info(
-      sprintf ("repository %s needs update", $git->git_dir)
+      sprintf ("applying changes into %s", $git->git_dir)
     );
-    $git->run('pull');
+    $git->run('pull') or die "Could not fetch $@";
   }
+  return 1;
 }
 
 sub pull_tasker ($git) {
@@ -58,7 +60,7 @@ sub pull_tasker ($git) {
   );
 
   return {
-    next      => sub { $loop->add(create_subprocess(sub { update_repo($git) }, $git->git_dir)) },
+    next      => sub { create_subprocess(sub { update_repo($git) }, $git->git_dir) },
     error     => sub ($err) { $globals{log}->error("Error in stream: $err") },
     complete  => sub { $globals{log}->info( 'Great success') },
   };
@@ -67,25 +69,37 @@ sub pull_tasker ($git) {
 sub create_subprocess($cb, $repo) {
   $globals{log}->info("generating subprocess for $repo");
 
-  return IO::Async::Process->new(
+  my $p = path($repo);
+  my $name = $p->to_array->[-2];
+  my $setup = [
+    stdin  => [ "open", "<",  "/dev/null" ],
+    stdout => [ "open", ">>", "/tmp/$name.log" ],
+    stderr => [ "open", ">>", "/tmp/updater/$name.log" ],
+  ];
+  my $process = IO::Async::Process->new(
     code => $cb,
-    # stdout => {
-    #   on_read => sub {
-    #     my ($stream, $buffref) = @_;
-    #     while( $$buffref =~ s/^(.*)\n// ) {
-    #       $globals{log}->info(
-    #         sprintf("output $$: %s ", $1)
-    #       );
-    #     }
-    #     return 0;
-    #   },
-    # },
-    on_exception => sub ($exception, $errno, $exitcode) {
-      $globals{log}->error("Exception $exception, happed $errno, resulted $exitcode as exit code");
+    setup => $setup,
+    on_exception => sub ($exception, $errno, $exitcode){
+      $globals{log}->error("($p)Error, $exception, failed with code $exitcode");
     },
     on_finish => sub {
-      $globals{log}->info("($$)finished checking for $repo");
+      $globals{log}->info("finished fecth/pull for $repo");
     },
+  );
+
+  $loop->add( $process );
+  $loop->add(
+    IO::Async::Timer::Countdown->new(
+      delay => int($globals{poll} * 0.95),
+      on_expire => sub { 
+        if ($process->is_running) {
+          $process->kill(15);
+          $globals{log}->warn(
+            sprintf ("(%d) killed fetching for %s", $process->pid, $p)
+          );
+        }
+      },
+    )->start
   );
 }
 
