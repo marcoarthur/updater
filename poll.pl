@@ -80,7 +80,7 @@ sub create_subprocess($cb, $repo) {
   my $process = IO::Async::Process->new(
     code => $cb,
     setup => $setup,
-    on_exception => sub ($exception, $errno, $exitcode){
+    on_exception => sub ($exception, $errno, $exitcode) {
       $globals{log}->error("($p)Error, $exception, failed with code $exitcode");
     },
     on_finish => sub {
@@ -91,13 +91,13 @@ sub create_subprocess($cb, $repo) {
   $loop->add( $process );
   $loop->add(
     IO::Async::Timer::Countdown->new(
-      delay => int($globals{poll} * 0.95),
+      delay     => int($globals{poll} * 0.95),
       on_expire => sub { 
         if ($process->is_running) {
-          $process->kill(15);
           $globals{log}->warn(
             sprintf ("(%d) killed fetching for %s", $process->pid, $p)
           );
+          $process->kill(15);
         }
       },
     )->start
