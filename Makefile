@@ -2,7 +2,7 @@
 .PHONY = run clean-logs
 
 UPDIR = ~/Code/github
-POLL = 20
+POLL = 30
 
 run: clean-logs
 	perl poll.pl --poll=$(POLL) --verbose --repo `echo $(UPDIR)/* | sed -ne 's/ / --repo=/gp'`
