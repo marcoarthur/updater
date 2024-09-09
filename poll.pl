@@ -54,9 +54,9 @@ sub run_git_cmd($cmd, $git, $opts = undef) {
   ) if $globals{verbose};
   my $data = { $cmd => { delta => time } };
   my $git_cmd = $git->command( $opts ? ($cmd => @$opts) : $cmd );
-  $git_cmd->close;
   my @out = $git_cmd->stdout->getlines;
   my @err = $git_cmd->stderr->getlines;
+  $git_cmd->close;
   $data->{$cmd}{delta} -= time;
   $data->{$cmd}{delta} *= -1;
   $data->{$cmd}{output} = join "\n", @out;
