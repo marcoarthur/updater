@@ -105,8 +105,17 @@ sub pull_tasker ($git) {
     sprintf ("created observer for %s", $git->git_dir)
   );
 
+  # a dummy process for testing purpose
+  my $dummy = sub { 
+    $globals{log}->info("DUMMY call to github");
+    ($$ =~ m/(\d)$/);
+    sleep ($1);
+    $globals{log}->info("Great Success on nap $1 !");
+  };
+
   return {
     next      => sub { create_subprocess(sub { update_repo($git) }, $git->git_dir) },
+    # next      => sub { create_subprocess($dummy, $git->git_dir) },
     error     => sub ($err) { $globals{log}->error("Error in stream: $err") },
     complete  => sub { $globals{log}->info( 'Great success') },
   };
@@ -131,8 +140,9 @@ sub create_subprocess($cb, $repo) {
       my ($self, $exception, $exitcode) = @_;
       $globals{log}->error("($p)Error, $exception, failed with code $exitcode");
     },
-    on_finish => sub {
-      $globals{log}->info("finished fecth/pull for $repo");
+    on_finish => sub ($self, $code){
+      my $status = ( $code >> 8 );
+      $globals{log}->info("finished fecth/pull for $repo with $status code");
     },
   );
 
@@ -156,8 +166,12 @@ sub create_subprocess($cb, $repo) {
 
 # setup the Rx component to each repository
 sub setup_polling {
+  # wait randomly before each git fetch/pull request
+  time =~ m/^(\d).*(\d)$/;
+  my $rand_start = sub { int(rand($1)) + int(rand($2)) };
+
   return $globals{git}->map(
-    sub { rx_timer(0,$globals{poll})->subscribe(pull_tasker($_)) }
+    sub { rx_timer($rand_start->(),$globals{poll})->subscribe(pull_tasker($_)) }
   );
 }
 
