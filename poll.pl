@@ -56,6 +56,7 @@ sub run_git_cmd($cmd, $git, $opts = undef) {
   my $git_cmd = $git->command( $opts ? ($cmd => @$opts) : $cmd );
   my @out = $git_cmd->stdout->getlines;
   my @err = $git_cmd->stderr->getlines;
+  $git_cmd->close;
   $data->{$cmd}{delta} -= time;
   $data->{$cmd}{delta} *= -1;
   $data->{$cmd}{output} = join "\n", @out;
@@ -155,7 +156,7 @@ sub create_subprocess($cb, $repo) {
       on_expire => sub { 
         if ($process->is_running) {
           $globals{log}->warn(
-            sprintf ("(%d) killed fetching for %s", $process->pid, $p)
+            sprintf ("(%d) killed process on repo: %s", $process->pid, $p)
           ) if $globals{verbose};
           $process->kill(15);
         }
